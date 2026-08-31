@@ -5,6 +5,11 @@ import { isAllowedOrigin } from "./lib/originPolicy.js";
 import { OUTPUT_MAX_BYTES } from "./lib/backendConfig.js";
 import { limitTerminalChunk, parseTerminalChunk } from "./lib/outputLimit.js";
 import { terminalAccessTokenFromProtocolHeader } from "./lib/terminalAccess.js";
+
+const terminalDisconnectLingerMs = 10 * 60 * 1000;
+const terminalReplayBufferSize = 20000;
+const terminalReplayBuffers = new Map<string, { buffer: string[]; timer: NodeJS.Timeout | null }>();
+
 export function setupTerminalWs(server: Server) {
     const wss = new WebSocketServer({ noServer: true, handleProtocols: (protocols) => protocols.has("sk-coder-v1") ? "sk-coder-v1" : false });
     server.on("upgrade", async (request, socket, head) => {
@@ -35,6 +40,12 @@ export function setupTerminalWs(server: Server) {
             let terminal: { write: (data: string) => void; resize: (cols: number, rows: number) => void; detach: () => void; kill: () => void; } | null = null;
             let closed = false;
             const pendingMessages: Array<{ type?: string; command?: string; data?: string; cols?: number; rows?: number; }> = [];
+            const replayState = terminalReplayBuffers.get(requestedSessionId) ?? { buffer: [], timer: null };
+            terminalReplayBuffers.set(requestedSessionId, replayState);
+            if (replayState.timer) {
+                clearTimeout(replayState.timer);
+                replayState.timer = null;
+            }
             const handleMessage = (raw: import("ws").RawData) => {
                 try {
                     const message = JSON.parse(raw.toString()) as { type?: string; command?: string; data?: string; cols?: number; rows?: number; };
@@ -61,12 +72,25 @@ export function setupTerminalWs(server: Server) {
             ws.on("message", handleMessage);
             ws.on("close", () => {
                 closed = true;
-                terminal?.detach();
+                if (!terminal)
+                    return;
+                if (replayState.timer)
+                    clearTimeout(replayState.timer);
+                replayState.timer = setTimeout(() => {
+                    terminal?.detach();
+                    terminalReplayBuffers.delete(requestedSessionId);
+                }, terminalDisconnectLingerMs);
             });
             const session = await getWorkspaceSession(requestedSessionId);
             terminal = await openInteractiveTerminal(session.id, (data) => {
                 const parsed = parseTerminalChunk(data, cwd);
                 cwd = parsed.cwd;
+                if (replayState.buffer.length > 32)
+                    replayState.buffer.shift();
+                if (data)
+                    replayState.buffer.push(data);
+                if (replayState.buffer.length > terminalReplayBufferSize)
+                    replayState.buffer = replayState.buffer.slice(-terminalReplayBufferSize);
                 if (ws.readyState === WebSocket.OPEN) {
                     const limited = limitTerminalChunk(parsed.visible, sentBytes, OUTPUT_MAX_BYTES);
                     sentBytes = limited.sentBytes;
@@ -80,9 +104,11 @@ export function setupTerminalWs(server: Server) {
                 }
             }, (data) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: "stderr", data })), (code) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: "exit", code, cwd })), undefined, terminalId);
             if (closed) {
-                terminal.detach();
                 return;
             }
+            const replay = replayState.buffer.join("");
+            if (replay)
+                ws.send(JSON.stringify({ type: "stdout", data: replay.slice(-terminalReplayBufferSize) }));
             ws.send(JSON.stringify({ type: "ready", cwd, sessionId: session.id, mode: "pty" }));
             ws.send(JSON.stringify({ type: "state", state: "live", cwd }));
             for (const message of pendingMessages)

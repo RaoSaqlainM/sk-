@@ -42,14 +42,14 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use((req: any, _res: Response, next: NextFunction) => {
+app.use((req: any, res: Response, next: NextFunction) => {
     const deviceId = req.headers["x-device-id"];
-    if (!deviceId || typeof deviceId !== "string" || deviceId.length < 8) {
-        req.deviceId = "anonymous";
+    const isValid = typeof deviceId === "string" && deviceId.length >= 8 && /^[a-zA-Z0-9-]{8,64}$/.test(deviceId);
+    if (!isValid) {
+        res.status(401).json({ error: "Device identity is required." });
+        return;
     }
-    else {
-        req.deviceId = deviceId;
-    }
+    req.deviceId = deviceId;
     next();
 });
 app.use("/api", router);
