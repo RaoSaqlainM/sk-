@@ -1,5 +1,6 @@
 const BASE = import.meta.env.VITE_API_URL || "/api";
 import { resolveWebSocketBase } from "./backendEndpoints";
+import { drainQueuedOperations, enqueueQueuedOperation, shouldQueueOperation } from "./operationQueue";
 
 const WS_BASE = resolveWebSocketBase(BASE, import.meta.env.VITE_WS_URL);
 export interface ExecResult {
@@ -71,25 +72,58 @@ export async function isBackendAvailable(): Promise<boolean> {
         const data = await response.json() as {
             status?: string;
         };
-        return data.status === "ok";
+        if (data.status === "ok") {
+            void drainQueuedOperations(async (operation) => {
+                const queuedResponse = await fetch(`${BASE}${operation.path}`, {
+                    method: operation.method as "GET" | "POST" | "PUT",
+                    headers: { ...getHeaders(), ...(operation.headers ?? {}) },
+                    body: operation.body === undefined ? undefined : JSON.stringify(operation.body),
+                    signal: AbortSignal.timeout(30000),
+                });
+                if (!queuedResponse.ok) {
+                    const errorPayload = await queuedResponse.json().catch(() => ({ error: queuedResponse.statusText })) as { error?: string };
+                    throw new Error(errorPayload.error || queuedResponse.statusText);
+                }
+                return queuedResponse;
+            });
+            return true;
+        }
+        return false;
     }
     catch {
         return false;
     }
 }
 async function workspaceRequest<T>(path: string, method: "GET" | "POST" | "PUT", body?: unknown): Promise<T> {
-    const response = await fetch(`${BASE}${path}`, {
-        method,
-        headers: getHeaders(),
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(30000),
-    });
-    const data = await response.json().catch(() => ({ error: response.statusText })) as T & {
-        error?: string;
-    };
-    if (!response.ok)
-        throw new Error(data.error || response.statusText);
-    return data;
+    const headers = getHeaders();
+    try {
+        const response = await fetch(`${BASE}${path}`, {
+            method,
+            headers,
+            body: body === undefined ? undefined : JSON.stringify(body),
+            signal: AbortSignal.timeout(30000),
+        });
+        const data = await response.json().catch(() => ({ error: response.statusText })) as T & {
+            error?: string;
+        };
+        if (!response.ok) {
+            const message = data.error || response.statusText;
+            if (shouldQueueOperation(message)) {
+                enqueueQueuedOperation("workspaceRequest", { path, method, body, headers });
+                throw new Error("The workspace request was queued because the backend is busy or temporarily unavailable. It will retry automatically when capacity is available.");
+            }
+            throw new Error(message);
+        }
+        return data;
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (shouldQueueOperation(message)) {
+            enqueueQueuedOperation("workspaceRequest", { path, method, body, headers });
+            throw new Error("The workspace request was queued because the backend is busy or temporarily unavailable. It will retry automatically when capacity is available.");
+        }
+        throw error;
+    }
 }
 export async function createWorkspace(retentionMode: WorkspaceRetentionMode = "three-days", startRuntime = true) {
     return workspaceRequest<{
@@ -172,18 +206,32 @@ export async function cancelWorkspaceDelete(sessionId: string) {
 export async function runOnBackend(language: string, code: string, opts?: {
     sessionId?: string;
 }): Promise<ExecResult> {
+    const payload = { language, code, ...opts };
     try {
         const response = await fetch(`${BASE}/execute`, {
             method: "POST",
             headers: getHeaders(),
-            body: JSON.stringify({ language, code, ...opts }),
+            body: JSON.stringify(payload),
             signal: AbortSignal.timeout(125000),
         });
         const data = await response.json().catch(() => null) as ExecResult | null;
+        if (!response.ok) {
+            const message = (data && typeof data === "object" && "error" in data ? String((data as { error?: string }).error ?? response.statusText) : response.statusText);
+            if (shouldQueueOperation(message)) {
+                enqueueQueuedOperation("runOnBackend", { path: "/execute", method: "POST", body: payload, headers: getHeaders() });
+                return { stdout: "", stderr: "The run was queued while the workspace service was busy. It will resume automatically when the backend is ready.", exitCode: 0, executionTime: 0, error: message };
+            }
+            return data ?? { stdout: "", stderr: message, exitCode: 1, executionTime: 0, error: message };
+        }
         return data ?? { stdout: "", stderr: response.statusText, exitCode: 1, executionTime: 0, error: response.statusText };
     }
     catch (error) {
-        return { stdout: "", stderr: String(error), exitCode: 1, executionTime: 0, error: String(error) };
+        const message = error instanceof Error ? error.message : String(error);
+        if (shouldQueueOperation(message)) {
+            enqueueQueuedOperation("runOnBackend", { path: "/execute", method: "POST", body: payload, headers: getHeaders() });
+            return { stdout: "", stderr: "The run was queued while the workspace service was busy. It will resume automatically when the backend is ready.", exitCode: 0, executionTime: 0, error: message };
+        }
+        return { stdout: "", stderr: message, exitCode: 1, executionTime: 0, error: message };
     }
 }
 export async function syncWorkspaceFiles(sessionId: string, files: WorkspaceFilePayload[]) {
