@@ -90,6 +90,10 @@ function isImageFile(name: string): boolean {
 function isNestedArchive(name: string): boolean {
     return /\.(?:zip|jar|aar|apk|xapk|apks)$/i.test(name);
 }
+function isArchiveFile(file: File): boolean {
+    const lower = file.name.toLowerCase();
+    return /\.(?:apk|xapk|apks|zip|jar|aar|war|ear)$/i.test(lower) || ["application/vnd.android.package-archive", "application/zip", "application/java-archive", "application/octet-stream"].includes(file.type);
+}
 function imageMimeType(name: string): string {
     const ext = name.split(".").pop()?.toLowerCase() ?? "png";
     if (ext === "jpg")
@@ -1006,8 +1010,12 @@ export default function ApkEditor() {
     function handleDrop(e: React.DragEvent) {
         e.preventDefault();
         const file = e.dataTransfer.files[0];
-        if (file)
-            loadApk(file);
+        if (!file) return;
+        if (!isArchiveFile(file)) {
+            toast.error("This file is not a valid APK, XAPK, APKS, or ZIP package.");
+            return;
+        }
+        void loadApk(file);
     }
     function closeApk() {
         if (archiveTrail.length > 0) {
@@ -1149,10 +1157,18 @@ export default function ApkEditor() {
         {files.length === 0 && (<button className="btn btn-primary" onClick={() => inputRef.current?.click()} style={{ fontSize: 11, padding: "0.2rem 0.6rem" }}>
             Open APK / ZIP
           </button>)}
-        <input ref={inputRef} type="file" accept=".apk,.zip,.xapk,.apks" style={{ display: "none" }} onChange={(e) => {
+        <input ref={inputRef} type="file" accept=".apk,.zip,.xapk,.apks,.aar,.jar,.war,.ear,application/vnd.android.package-archive,application/zip,application/java-archive" style={{ display: "none" }} onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f)
-                loadApk(f);
+            if (!f) {
+                e.target.value = "";
+                return;
+            }
+            if (!isArchiveFile(f)) {
+                toast.error("This file is not a valid APK, XAPK, APKS, or ZIP package.");
+                e.target.value = "";
+                return;
+            }
+            void loadApk(f);
             e.target.value = "";
         }}/>
         <input ref={replacementInputRef} type="file" style={{ display: "none" }} onChange={(event) => {
