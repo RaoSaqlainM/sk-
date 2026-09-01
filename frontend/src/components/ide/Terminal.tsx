@@ -589,6 +589,10 @@ export default function MultiTerminal() {
                     return;
                 terminalSocketsRef.current.delete(tabId);
                 connectingTabsRef.current.delete(tabId);
+                if (/workspace access is not valid|invalid.*workspace.*(access|session)|unauthorized|forbidden|401|403/i.test(message)) {
+                    recoverShell(tabId);
+                    return;
+                }
                 if (/workspace runtime is not active|no such container/i.test(message)) {
                     recoverShell(tabId, undefined, true);
                     return;

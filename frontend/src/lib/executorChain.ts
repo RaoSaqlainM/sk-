@@ -172,12 +172,22 @@ async function tryBackend(language: string, code: string, stdin = ""): Promise<E
         const sessionId = localStorage.getItem("sk-coder-workspace-session-id");
         const workspaceAccess = localStorage.getItem("sk-coder-workspace-terminal-access");
         const useWorkspace = Boolean(sessionId && workspaceAccess);
-        const response = await fetch(`${API_BASE}/execute`, {
+        let response = await fetch(`${API_BASE}/execute`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-Device-Id": deviceId, ...(useWorkspace ? { "X-SK-Workspace-Access": workspaceAccess! } : {}) },
             body: JSON.stringify({ language, code, stdin, ...(useWorkspace ? { sessionId } : {}) }),
             signal: AbortSignal.timeout(35000),
         });
+        if (useWorkspace && (response.status === 401 || response.status === 403 || response.status === 404)) {
+            localStorage.removeItem("sk-coder-workspace-session-id");
+            localStorage.removeItem("sk-coder-workspace-terminal-access");
+            response = await fetch(`${API_BASE}/execute`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Device-Id": deviceId },
+                body: JSON.stringify({ language, code, stdin }),
+                signal: AbortSignal.timeout(35000),
+            });
+        }
         if (!response.ok)
             return null;
         const data = await response.json() as {
