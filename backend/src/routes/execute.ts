@@ -16,6 +16,9 @@ router.param("id", async (req, res, next, id) => {
         res.status(403).json({ error: "Workspace access is not valid for this browser session." });
     }
 });
+router.get("/execute/status", async (_req, res) => {
+    res.json(await workspaceStatus());
+});
 router.get("/execute/runtimes", async (_req, res) => {
     const [status, probes] = await Promise.all([workspaceStatus(), probeRuntimeImage()]);
     const availability = new Map(probes.map((probe) => [probe.name, probe.available]));

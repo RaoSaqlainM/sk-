@@ -14,7 +14,8 @@ function parsePreviewPath(url: string) {
 
 export function proxyWebPreviewHttpRequest(req: IncomingMessage, res: any, id: string, token: string) {
     void getWebPreviewTarget(id, token).then(({ host, port }) => {
-        const upstream = httpRequest({ hostname: host, port, method: req.method, path: req.url || "/", headers: { ...req.headers, host: `${host}:${port}` } }, (upstreamResponse) => {
+        const parsed = parsePreviewPath(req.url || "/");
+        const upstream = httpRequest({ hostname: host, port, method: req.method, path: parsed?.targetPath || "/", headers: { ...req.headers, host: `${host}:${port}` } }, (upstreamResponse) => {
             res.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);
             upstreamResponse.pipe(res);
         });

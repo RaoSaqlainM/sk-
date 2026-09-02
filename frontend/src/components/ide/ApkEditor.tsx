@@ -268,6 +268,7 @@ export default function ApkEditor() {
     const inputRef = useRef<HTMLInputElement>(null);
     const replacementInputRef = useRef<HTMLInputElement>(null);
     const loadVersionRef = useRef(0);
+    const apkWorkspaceAccessRef = useRef<string | null>(null);
     const activeFiles = decodedWorkspace ? decodedFiles : files;
     const folderTree = useMemo(() => buildFolderTree(activeFiles), [activeFiles]);
     const manifestDetails = useMemo(() => {
@@ -485,9 +486,9 @@ export default function ApkEditor() {
     useEffect(() => {
         if (!apkJob || !["queued", "running"].includes(apkJob.status)) return;
         const timer = window.setInterval(() => {
-            void getApkJob(apkJob.id).then((job) => {
+            void getApkJob(apkJob.id, apkWorkspaceAccessRef.current ?? undefined).then((job) => {
                 setApkJob(job);
-                if (job.status === "complete" && job.mode !== "inspect") void getApkDecodedEntries(job.id).then((result) => setDecodedEntryCount(result.entries.length)).catch(() => setDecodedEntryCount(null));
+                if (job.status === "complete" && job.mode !== "inspect") void getApkDecodedEntries(job.id, apkWorkspaceAccessRef.current ?? undefined).then((result) => setDecodedEntryCount(result.entries.length)).catch(() => setDecodedEntryCount(null));
             }).catch((error) => setApkJob((previous) => previous ? { ...previous, status: "failed", error: error instanceof Error ? error.message : "APK job status could not be loaded." } : previous));
         }, 1800);
         return () => window.clearInterval(timer);
@@ -499,7 +500,7 @@ export default function ApkEditor() {
         }
         setLoading(true);
         try {
-            const result = await getApkDecodedEntries(apkJob.id);
+            const result = await getApkDecodedEntries(apkJob.id, apkWorkspaceAccessRef.current ?? undefined);
             const entries = result.entries.map((path) => ({ name: path.split("/").pop() || path, path, size: 0, isText: isTextFilename(path), isDir: false }));
             setDecodedFiles(entries);
             setDecodedWorkspace(true);
@@ -655,7 +656,7 @@ export default function ApkEditor() {
                 return;
             }
             try {
-                const entry = await getApkDecodedEntry(apkJob.id, apkFile.path);
+                const entry = await getApkDecodedEntry(apkJob.id, apkFile.path, apkWorkspaceAccessRef.current ?? undefined);
                 setSelected({ ...apkFile, size: entry.size });
                 setEditContent(entry.content);
                 if (/AndroidManifest\.xml$/i.test(apkFile.path)) setDetectedPackageDetails(packageDetailsFromManifest(readApkManifestMetadata(entry.content)));
@@ -715,7 +716,7 @@ export default function ApkEditor() {
                 return;
             }
             try {
-                const saved = await updateApkDecodedEntry(apkJob.id, selected.path, editContent);
+                const saved = await updateApkDecodedEntry(apkJob.id, selected.path, editContent, apkWorkspaceAccessRef.current ?? undefined);
                 setDecodedFiles((previous) => previous.map((file) => file.path === selected.path ? { ...file, size: saved.size } : file));
                 setModified((previous) => new Set([...previous, selected.path]));
                 toast.success(`Saved decoded ${selected.name}`);
@@ -810,16 +811,17 @@ export default function ApkEditor() {
         try {
             const blob = await zipRef.zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
             const workspace = await createWorkspace("four-hours");
+            apkWorkspaceAccessRef.current = workspace.terminalAccessToken;
             const sourcePath = `apk/${apkName.replace(/[^a-zA-Z0-9._-]/g, "_") || "workspace.apk"}`;
-            const stage = await beginWorkspaceStage(workspace.id, [{ path: sourcePath, size: blob.size }]);
+            const stage = await beginWorkspaceStage(workspace.id, [{ path: sourcePath, size: blob.size }], undefined, undefined, workspace.terminalAccessToken);
             const staged = stage.files.find((file) => file.path === sourcePath);
             if (!staged) throw new Error("APK staging did not accept the archive path.");
             const pendingOffsets = new Set(staged.missingOffsets);
             for (let offset = 0; offset < blob.size; offset += stage.chunkBytes) {
-                if (pendingOffsets.has(offset)) await uploadWorkspaceStageChunk(workspace.id, stage.stageId, sourcePath, offset, blob.slice(offset, Math.min(blob.size, offset + stage.chunkBytes)));
+                if (pendingOffsets.has(offset)) await uploadWorkspaceStageChunk(workspace.id, stage.stageId, sourcePath, offset, blob.slice(offset, Math.min(blob.size, offset + stage.chunkBytes)), undefined, workspace.terminalAccessToken);
             }
-            await commitWorkspaceStage(workspace.id, stage.stageId);
-            const job = await createApkJob(workspace.id, sourcePath, level);
+            await commitWorkspaceStage(workspace.id, stage.stageId, workspace.terminalAccessToken);
+            const job = await createApkJob(workspace.id, sourcePath, level, workspace.terminalAccessToken);
             setApkJob(job);
             setDecodeLevel(level);
             setShowDecodeChooser(false);
@@ -849,7 +851,7 @@ export default function ApkEditor() {
         try {
             toast.info("Building the decoded workspace. Archive-only edits are exported separately as an archive.");
             const suffix = sign ? "_skcoder_signed.apk" : "_skcoder_unsigned.apk";
-            const next = await buildApkJob(apkJob.id, apkName.replace(/\.(apk|zip|xapk|apks)$/i, suffix), sign);
+            const next = await buildApkJob(apkJob.id, apkName.replace(/\.(apk|zip|xapk|apks)$/i, suffix), sign, apkWorkspaceAccessRef.current ?? undefined);
             setApkJob(next);
             toast.success(sign ? "Signed APK rebuild started" : "Unsigned APK rebuild started");
         }
@@ -870,7 +872,7 @@ export default function ApkEditor() {
             if (manifest && selected?.path !== manifest.path) {
                 setLoading(true);
                 try {
-                    const entry = await getApkDecodedEntry(apkJob.id, manifest.path);
+                    const entry = await getApkDecodedEntry(apkJob.id, manifest.path, apkWorkspaceAccessRef.current ?? undefined);
                     setSelected({ ...manifest, size: entry.size });
                     setSelectedSource("decoded");
                     setEditContent(entry.content);
@@ -1333,7 +1335,7 @@ export default function ApkEditor() {
                       <button className="btn btn-ghost" onClick={() => void requestBackendBuild(true)} disabled={loading}>Build and sign</button>
                     </div>
                     <span style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.45 }}>Build and sign creates a one-time signing key inside the isolated job and deletes it before the artifact is available. It does not use or retain a personal keystore.</span>
-                    {apkJob.artifactReady && <button className="btn btn-ghost" onClick={() => void downloadApkArtifact(apkJob.id).catch((error) => toast.error(error instanceof Error ? error.message : "APK artifact download failed."))}>Download artifact</button>}
+                    {apkJob.artifactReady && <button className="btn btn-ghost" onClick={() => void downloadApkArtifact(apkJob.id, apkWorkspaceAccessRef.current ?? undefined).catch((error) => toast.error(error instanceof Error ? error.message : "APK artifact download failed."))}>Download artifact</button>}
                   </div>}
               </div>}</div>
             <footer className="apk-dialog-footer"><button className="btn btn-ghost" onClick={() => setShowDecodeChooser(false)}>Cancel</button></footer>

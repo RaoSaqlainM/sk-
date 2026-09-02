@@ -60,8 +60,8 @@ function getDeviceId(): string {
     }
     return id;
 }
-function getHeaders() {
-    const workspaceAccess = localStorage.getItem("sk-coder-workspace-terminal-access");
+function getHeaders(workspaceAccessOverride?: string) {
+    const workspaceAccess = workspaceAccessOverride ?? localStorage.getItem("sk-coder-workspace-terminal-access");
     return { "Content-Type": "application/json", "X-Device-Id": getDeviceId(), ...(workspaceAccess ? { "X-SK-Workspace-Access": workspaceAccess } : {}) };
 }
 export async function isBackendAvailable(): Promise<boolean> {
@@ -94,8 +94,8 @@ export async function isBackendAvailable(): Promise<boolean> {
         return false;
     }
 }
-async function workspaceRequest<T>(path: string, method: "GET" | "POST" | "PUT", body?: unknown): Promise<T> {
-    const headers = getHeaders();
+async function workspaceRequest<T>(path: string, method: "GET" | "POST" | "PUT", body?: unknown, workspaceAccess?: string): Promise<T> {
+    const headers = getHeaders(workspaceAccess);
     try {
         const response = await fetch(`${BASE}${path}`, {
             method,
@@ -246,19 +246,19 @@ export async function syncWorkspaceFiles(sessionId: string, files: WorkspaceFile
             error?: string;
         }).error || response.statusText);
 }
-export async function beginWorkspaceStage(sessionId: string, files: WorkspaceStageFile[], stageId?: string, options?: { baseRevision?: number; deletedPaths?: string[] }) {
-    return workspaceRequest<WorkspaceStageStatus>(`/execute/sessions/${encodeURIComponent(sessionId)}/stage/manifest`, "POST", { files, ...(stageId ? { stageId } : {}), ...(options?.baseRevision !== undefined ? { baseRevision: options.baseRevision } : {}), ...(options?.deletedPaths?.length ? { deletedPaths: options.deletedPaths } : {}) });
+export async function beginWorkspaceStage(sessionId: string, files: WorkspaceStageFile[], stageId?: string, options?: { baseRevision?: number; deletedPaths?: string[] }, workspaceAccess?: string) {
+    return workspaceRequest<WorkspaceStageStatus>(`/execute/sessions/${encodeURIComponent(sessionId)}/stage/manifest`, "POST", { files, ...(stageId ? { stageId } : {}), ...(options?.baseRevision !== undefined ? { baseRevision: options.baseRevision } : {}), ...(options?.deletedPaths?.length ? { deletedPaths: options.deletedPaths } : {}) }, workspaceAccess);
 }
 export async function getWorkspaceStageStatus(sessionId: string, stageId: string) {
     return workspaceRequest<WorkspaceStageStatus>(`/execute/sessions/${encodeURIComponent(sessionId)}/stage/${encodeURIComponent(stageId)}`, "GET");
 }
-export async function uploadWorkspaceStageChunk(sessionId: string, stageId: string, path: string, offset: number, chunk: Blob, checksum?: string) {
+export async function uploadWorkspaceStageChunk(sessionId: string, stageId: string, path: string, offset: number, chunk: Blob, checksum?: string, workspaceAccess?: string) {
     const response = await fetch(`${BASE}/execute/sessions/${encodeURIComponent(sessionId)}/stage/${encodeURIComponent(stageId)}/chunk`, {
         method: "PUT",
         headers: {
             "Content-Type": "application/octet-stream",
             "X-Device-Id": getDeviceId(),
-            ...(localStorage.getItem("sk-coder-workspace-terminal-access") ? { "X-SK-Workspace-Access": localStorage.getItem("sk-coder-workspace-terminal-access")! } : {}),
+            ...(workspaceAccess ?? localStorage.getItem("sk-coder-workspace-terminal-access") ? { "X-SK-Workspace-Access": workspaceAccess ?? localStorage.getItem("sk-coder-workspace-terminal-access")! } : {}),
             "X-Stage-Path": path,
             "X-Stage-Offset": String(offset),
             ...(checksum ? { "X-Stage-Checksum": checksum } : {}),
@@ -269,8 +269,8 @@ export async function uploadWorkspaceStageChunk(sessionId: string, stageId: stri
     if (!response.ok)
         throw new Error((await response.json().catch(() => ({ error: response.statusText })) as { error?: string }).error || response.statusText);
 }
-export async function commitWorkspaceStage(sessionId: string, stageId: string) {
-    return workspaceRequest<{ revision: number }>(`/execute/sessions/${encodeURIComponent(sessionId)}/stage/${encodeURIComponent(stageId)}/commit`, "POST");
+export async function commitWorkspaceStage(sessionId: string, stageId: string, workspaceAccess?: string) {
+    return workspaceRequest<{ revision: number }>(`/execute/sessions/${encodeURIComponent(sessionId)}/stage/${encodeURIComponent(stageId)}/commit`, "POST", undefined, workspaceAccess);
 }
 export async function removeWorkspaceStage(sessionId: string, stageId: string) {
     const response = await fetch(`${BASE}/execute/sessions/${encodeURIComponent(sessionId)}/stage/${encodeURIComponent(stageId)}`, {
@@ -302,7 +302,7 @@ export async function getWorkspaceRuntimeStatus(): Promise<{
     ready: boolean;
 }> {
     try {
-        const response = await fetch(`${BASE}/execute/runtimes`, { signal: AbortSignal.timeout(5000), headers: getHeaders() });
+        const response = await fetch(`${BASE}/execute/status`, { signal: AbortSignal.timeout(5000), headers: getHeaders() });
         if (!response.ok)
             return { ready: false };
         const data = await response.json() as {
@@ -330,29 +330,29 @@ export type ApkJob = {
     artifactReady: boolean;
     artifactSigned: boolean;
 };
-export async function createApkJob(workspaceSessionId: string, sourcePath: string, mode: ApkJobMode) {
-    return workspaceRequest<ApkJob>("/apk/jobs", "POST", { workspaceSessionId, sourcePath, mode });
+export async function createApkJob(workspaceSessionId: string, sourcePath: string, mode: ApkJobMode, workspaceAccess?: string) {
+    return workspaceRequest<ApkJob>("/apk/jobs", "POST", { workspaceSessionId, sourcePath, mode }, workspaceAccess);
 }
-export async function getApkJob(id: string) {
-    return workspaceRequest<ApkJob>(`/apk/jobs/${encodeURIComponent(id)}`, "GET");
+export async function getApkJob(id: string, workspaceAccess?: string) {
+    return workspaceRequest<ApkJob>(`/apk/jobs/${encodeURIComponent(id)}`, "GET", undefined, workspaceAccess);
 }
-export async function getApkDecodedEntries(id: string) {
-    return workspaceRequest<{ entries: string[] }>(`/apk/jobs/${encodeURIComponent(id)}/entries`, "GET");
+export async function getApkDecodedEntries(id: string, workspaceAccess?: string) {
+    return workspaceRequest<{ entries: string[] }>(`/apk/jobs/${encodeURIComponent(id)}/entries`, "GET", undefined, workspaceAccess);
 }
-export async function getApkDecodedEntry(id: string, entryPath: string) {
-    return workspaceRequest<{ path: string; size: number; content: string }>(`/apk/jobs/${encodeURIComponent(id)}/entries/${entryPath.split("/").map(encodeURIComponent).join("/")}`, "GET");
+export async function getApkDecodedEntry(id: string, entryPath: string, workspaceAccess?: string) {
+    return workspaceRequest<{ path: string; size: number; content: string }>(`/apk/jobs/${encodeURIComponent(id)}/entries/${entryPath.split("/").map(encodeURIComponent).join("/")}`, "GET", undefined, workspaceAccess);
 }
-export async function updateApkDecodedEntry(id: string, entryPath: string, content: string) {
-    return workspaceRequest<{ path: string; size: number }>(`/apk/jobs/${encodeURIComponent(id)}/entries/${entryPath.split("/").map(encodeURIComponent).join("/")}`, "PUT", { content });
+export async function updateApkDecodedEntry(id: string, entryPath: string, content: string, workspaceAccess?: string) {
+    return workspaceRequest<{ path: string; size: number }>(`/apk/jobs/${encodeURIComponent(id)}/entries/${entryPath.split("/").map(encodeURIComponent).join("/")}`, "PUT", { content }, workspaceAccess);
 }
-export async function buildApkJob(id: string, outputName?: string, sign = false) {
-    return workspaceRequest<ApkJob>(`/apk/jobs/${encodeURIComponent(id)}/build`, "POST", { outputName, sign });
+export async function buildApkJob(id: string, outputName?: string, sign = false, workspaceAccess?: string) {
+    return workspaceRequest<ApkJob>(`/apk/jobs/${encodeURIComponent(id)}/build`, "POST", { outputName, sign }, workspaceAccess);
 }
 export function getApkArtifactUrl(id: string) {
     return `${BASE}/apk/jobs/${encodeURIComponent(id)}/artifact`;
 }
-export async function downloadApkArtifact(id: string) {
-    const workspaceAccess = localStorage.getItem("sk-coder-workspace-terminal-access");
+export async function downloadApkArtifact(id: string, workspaceAccessOverride?: string) {
+    const workspaceAccess = workspaceAccessOverride ?? localStorage.getItem("sk-coder-workspace-terminal-access");
     const response = await fetch(getApkArtifactUrl(id), { headers: { "X-Device-Id": getDeviceId(), ...(workspaceAccess ? { "X-SK-Workspace-Access": workspaceAccess } : {}) }, signal: AbortSignal.timeout(60000) });
     if (!response.ok) throw new Error((await response.json().catch(() => ({ error: response.statusText })) as { error?: string }).error || response.statusText);
     const blob = await response.blob();
