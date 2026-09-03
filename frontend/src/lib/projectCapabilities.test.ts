@@ -14,4 +14,9 @@ describe("project file capabilities", () => {
     it("keeps data files editor-only", () => {
         expect(getFileCapability({ id: "csv", name: "data.csv", type: "file", path: "/data.csv" })).toBe("none");
     });
+
+    it("exposes CSS and Markdown as browser previews", () => {
+        expect(getFileCapability({ id: "css", name: "styles.css", type: "file", path: "/styles.css", language: "css" })).toBe("preview");
+        expect(getFileCapability({ id: "md", name: "README.md", type: "file", path: "/README.md", language: "markdown" })).toBe("preview");
+    });
 });

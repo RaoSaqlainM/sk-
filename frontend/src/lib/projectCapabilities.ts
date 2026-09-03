@@ -11,6 +11,7 @@ const SOURCE_EXTENSIONS = new Set([
     "js", "mjs", "cjs", "ts", "tsx", "py", "java", "kt", "kts", "cs", "c", "cc", "cpp", "cxx", "rs", "go", "php", "rb", "sh", "bash",
 ]);
 const HTML_EXTENSIONS = new Set(["html", "htm"]);
+const TEXT_PREVIEW_EXTENSIONS = new Set(["css", "md", "markdown"]);
 const IMAGE_EXTENSIONS = new Set(["png", "apng", "jpg", "jpeg", "jpe", "jfif", "gif", "webp", "svg", "svgz", "bmp", "ico", "cur", "avif", "tif", "tiff", "heic", "heif", "jxl"]);
 const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "webm", "ogv", "ogg", "mov", "mkv", "avi", "wmv", "flv", "mpeg", "mpg", "3gp", "3g2", "ts", "mts", "m2ts"]);
 const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "ogg", "oga", "opus", "webm", "m4a", "aac", "flac", "wma", "aif", "aiff", "amr", "3gp"]);
@@ -23,7 +24,7 @@ export function getFileCapability(node: FileNode): FileCapability {
     if (node.type !== "file")
         return "none";
     const extension = extensionFor(node.name);
-    if (HTML_EXTENSIONS.has(extension) || isDirectPreviewFile(node))
+    if (HTML_EXTENSIONS.has(extension) || TEXT_PREVIEW_EXTENSIONS.has(extension) || isDirectPreviewFile(node))
         return "preview";
     return SOURCE_EXTENSIONS.has(extension) ? "run" : "none";
 }
