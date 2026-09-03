@@ -38,20 +38,6 @@ export default function IndexPage() {
     const newItemType = useIDEStore((state) => state.newItemType);
     const combinedWorkspace = activePanel === "editor" && sidebarOpen;
     useEffect(() => {
-        const preload = () => {
-            void loadAIChatPanel();
-            void loadCloudShell();
-            void loadApkEditor();
-        };
-        const idleWindow = window as Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number; cancelIdleCallback?: (handle: number) => void };
-        if (idleWindow.requestIdleCallback) {
-            const handle = idleWindow.requestIdleCallback(preload, { timeout: 1500 });
-            return () => idleWindow.cancelIdleCallback?.(handle);
-        }
-        const timer = window.setTimeout(preload, 700);
-        return () => window.clearTimeout(timer);
-    }, []);
-    useEffect(() => {
         const viewport = window.visualViewport;
         if (!viewport)
             return;

@@ -862,6 +862,10 @@ export const useIDEStore = create<IDEState & IDEActions>()(persist((set, get) =>
     onRehydrateStorage: () => (state) => {
         if (!state)
             return;
-        void restoreIndexedContent(state.fileTree).then(state.setFileTree);
+        void restoreIndexedContent(state.fileTree).then((fileTree) => {
+            const flatFiles = new Map<string, FileNode>();
+            flattenTree(fileTree, flatFiles);
+            useIDEStore.setState({ fileTree, flatFiles });
+        });
     },
 }));
