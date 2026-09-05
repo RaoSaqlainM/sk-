@@ -66,7 +66,7 @@ export default function AIChatPanel() {
     const [attachmentFolderPath, setAttachmentFolderPath] = useState("/");
     const [activeMessageActions, setActiveMessageActions] = useState<string | null>(null);
     const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messagesRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const { apiKey, keyStatus, usePuter } = settings.ai;
     const noKey = !apiKey && !usePuter;
@@ -97,7 +97,12 @@ export default function AIChatPanel() {
         return (folder?.children || []).filter((node) => !isSensitiveWorkspacePath(node.path));
     }, [attachmentFolderPath, fileTree, flatFiles]);
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        const messages = messagesRef.current;
+        if (!messages)
+            return;
+        const distanceFromEnd = messages.scrollHeight - messages.scrollTop - messages.clientHeight;
+        if (distanceFromEnd <= 80)
+            messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
     }, [aiChatMessages, aiTyping]);
     function deliverAIReply(reply: string) {
         const { explanation, actions } = extractAgentProposal(reply);
@@ -447,7 +452,7 @@ export default function AIChatPanel() {
           <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}><button className="btn btn-primary" onClick={() => void connectFreePuter()} disabled={puterConnecting}>{puterConnecting ? "Connecting…" : "Use free Puter AI"}</button><button className="btn btn-ghost" onClick={() => { setSettingsTab("ai"); setShowSettings(true); }}>AI settings</button></div>
         </div>)}
 
-      <div className="ai-chat-messages">
+    <div ref={messagesRef} className="ai-chat-messages">
         {aiChatMessages.length === 0 && !noKey && (<div className="panel-placeholder" style={{ padding: "2rem 1rem" }}>
             <div style={{ margin: "0 auto 0.75rem", width: 56, height: 56, borderRadius: 16, display: "grid", placeItems: "center", background: "rgba(167,139,250,0.14)", boxShadow: "0 0 16px rgba(0,122,204,0.25)" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
@@ -502,7 +507,7 @@ export default function AIChatPanel() {
             </div>
           </div>)}
 
-        <div ref={messagesEndRef}/>
+        <div />
       </div>
 
       <div className="ai-chat-input-area">

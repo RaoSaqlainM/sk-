@@ -620,14 +620,12 @@ export const useIDEStore = create<IDEState & IDEActions>()(persist((set, get) =>
             if (["html", "css", "js", "jsx", "ts", "tsx"].includes(ext || ""))
                 get().refreshPreview();
         }
-        void get().saveWorkspaceToBackend();
     },
     setFileAssetData: (path, assetData) => {
         const tree = updateAssetDataAtPath(get().fileTree, path, assetData);
         const map = new Map<string, FileNode>();
         flattenTree(tree, map);
         set({ fileTree: tree, flatFiles: map, previewKey: get().previewKey + 1 });
-        void get().saveWorkspaceToBackend();
     },
     moveNodes: (paths, toFolderPath) => {
         const targets = compactPaths(paths);

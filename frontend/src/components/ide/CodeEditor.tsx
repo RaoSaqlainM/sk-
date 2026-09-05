@@ -6,7 +6,7 @@ import { isBrowserAssetOnly } from "@/lib/browserAsset";
 import { toast } from "sonner";
 import { analyzeSourceSyntax } from "@/lib/syntaxDiagnostics";
 export default function CodeEditor() {
-    const { openTabs, activeTabId, getActiveFile, getFileContent, updateFileContent, markTabModified, settings, setIsRunning, addTerminalLine, setActivePanel, errors, setErrors, } = useIDEStore();
+    const { openTabs, activeTabId, getActiveFile, getFileContent, updateFileContent, saveWorkspaceToBackend, markTabModified, settings, setIsRunning, addTerminalLine, setActivePanel, errors, setErrors, } = useIDEStore();
     const activeFile = getActiveFile();
     const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
     const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);
@@ -59,6 +59,7 @@ export default function CodeEditor() {
             if (model && activeFile) {
                 updateFileContent(activeFile.path, model.getValue());
                 markTabModified(activeTabId || "", false);
+                void saveWorkspaceToBackend();
             }
         });
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyP, () => {
