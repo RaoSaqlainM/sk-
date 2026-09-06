@@ -21,15 +21,6 @@ const NAV_ITEMS: {
       </svg>),
     },
     {
-        id: "terminal",
-        title: "Terminal",
-        icon: (<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-        <rect x="2" y="3" width="20" height="18" rx="3"/>
-        <polyline points="8 10 12 14 8 18"/>
-        <line x1="14" y1="18" x2="20" y2="18"/>
-      </svg>),
-    },
-    {
         id: "preview",
         title: "Preview",
         icon: (<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">

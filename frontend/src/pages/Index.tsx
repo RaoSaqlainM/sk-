@@ -11,7 +11,6 @@ import ContextMenu from "@/components/ide/ContextMenu";
 import NewFileDialog from "@/components/ide/NewFileDialog";
 import ErrorPanel from "@/components/ide/ErrorPanel";
 import CodeEditor from "@/components/ide/CodeEditor";
-import MultiTerminal from "@/components/ide/Terminal";
 const loadAIChatPanel = () => import("@/components/ide/AIChatPanel");
 const loadCloudShell = () => import("@/components/ide/CloudShell");
 const loadApkEditor = () => import("@/components/ide/ApkEditor");
@@ -37,6 +36,20 @@ export default function IndexPage() {
     const setContextMenu = useIDEStore((state) => state.setContextMenu);
     const newItemType = useIDEStore((state) => state.newItemType);
     const combinedWorkspace = activePanel === "editor" && sidebarOpen;
+    useEffect(() => {
+        const preload = () => {
+            void loadAIChatPanel();
+            void loadCloudShell();
+            void loadApkEditor();
+        };
+        const idleWindow = window as Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number; cancelIdleCallback?: (handle: number) => void };
+        if (idleWindow.requestIdleCallback) {
+            const handle = idleWindow.requestIdleCallback(preload, { timeout: 1500 });
+            return () => idleWindow.cancelIdleCallback?.(handle);
+        }
+        const timer = window.setTimeout(preload, 700);
+        return () => window.clearTimeout(timer);
+    }, []);
     useEffect(() => {
         const viewport = window.visualViewport;
         if (!viewport)
@@ -78,9 +91,6 @@ export default function IndexPage() {
             </div>
             <ErrorPanel />
           </div>}
-          {activePanel === "terminal" && (<div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-              <MultiTerminal />
-            </div>)}
           {activePanel === "preview" && (<div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <PreviewPane />
             </div>)}

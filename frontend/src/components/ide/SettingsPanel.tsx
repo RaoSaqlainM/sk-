@@ -5,8 +5,7 @@ import { AEROLINK_COMPATIBLE_BASE_URL, AEROLINK_DEFAULT_MODEL, AEROLINK_MODELS, 
 import { connectPuterSession } from "@/lib/puterClient";
 import type { AIProvider } from "@/types/ide";
 import { toast } from "sonner";
-import { cancelWorkspaceDelete, getWorkspaceLifecycle, scheduleWorkspaceDelete, type WorkspaceLifecycle } from "@/lib/backendRunner";
-import { getWholeWorkspaceSessionId, markWholeWorkspaceDeletionPending } from "@/lib/wholeWorkspaceMirror";
+import developerPortrait from "@/assets/saqlain-developer.jpg";
 type ToggleProps = {
     checked: boolean;
     onChange: (v: boolean) => void;
@@ -36,10 +35,6 @@ const NAV: NavItem[] = [
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77 5.44 5.44 0 0 0 3.5 8.55c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>,
     },
     {
-        id: "workspace", label: "Workspace",
-        icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9"/></svg>,
-    },
-    {
         id: "about", label: "About",
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
     },
@@ -61,71 +56,12 @@ export default function SettingsPanel() {
     const [liveModels, setLiveModels] = useState<AIModelOption[]>([]);
     const [connectionDetail, setConnectionDetail] = useState("");
     const [puterConnecting, setPuterConnecting] = useState(false);
-    const [workspaceLifecycle, setWorkspaceLifecycle] = useState<WorkspaceLifecycle | null>(null);
-    const [workspaceLoading, setWorkspaceLoading] = useState(false);
     const matchingModelPresets = useMemo(() => {
         const query = modelSearch.trim().toLowerCase();
         const models = [...liveModels, ...(isAerolinkKey(keyInput) ? AEROLINK_MODELS : []), ...catalogModels(providerInput, settings.ai.customModels)];
         const unique = models.filter((item, index, list) => list.findIndex((entry) => entry.id === item.id) === index);
         return query ? unique.filter((model) => `${model.label} ${model.id} ${model.family}`.toLowerCase().includes(query)) : unique;
     }, [liveModels, modelSearch, providerInput, settings.ai.customModels]);
-    async function refreshWorkspaceLifecycle() {
-        const sessionId = getWholeWorkspaceSessionId();
-        if (!sessionId) {
-            setWorkspaceLifecycle(null);
-            return;
-        }
-        setWorkspaceLoading(true);
-        try {
-            setWorkspaceLifecycle(await getWorkspaceLifecycle(sessionId));
-        }
-        catch {
-            setWorkspaceLifecycle(null);
-        }
-        finally {
-            setWorkspaceLoading(false);
-        }
-    }
-    useEffect(() => {
-        if (settingsTab === "workspace")
-            void refreshWorkspaceLifecycle();
-    }, [settingsTab]);
-    async function scheduleServerWorkspaceDeletion() {
-        const sessionId = getWholeWorkspaceSessionId();
-        if (!sessionId)
-            return;
-        setWorkspaceLoading(true);
-        try {
-            const lifecycle = await scheduleWorkspaceDelete(sessionId);
-            markWholeWorkspaceDeletionPending(true);
-            setWorkspaceLifecycle(lifecycle);
-            toast.success("Server workspace scheduled for deletion");
-        }
-        catch (error) {
-            toast.error(error instanceof Error ? error.message : "The server workspace could not be scheduled for deletion.");
-        }
-        finally {
-            setWorkspaceLoading(false);
-        }
-    }
-    async function undoServerWorkspaceDeletion() {
-        const sessionId = getWholeWorkspaceSessionId();
-        if (!sessionId)
-            return;
-        setWorkspaceLoading(true);
-        try {
-            const lifecycle = await cancelWorkspaceDelete(sessionId);
-            markWholeWorkspaceDeletionPending(false);
-            setWorkspaceLifecycle(lifecycle);
-            toast.success("Server workspace restored");
-        }
-        catch (error) {
-            toast.error(error instanceof Error ? error.message : "The server workspace could not be restored.");
-        }
-        finally {
-            setWorkspaceLoading(false);
-        }
-    }
     async function handleConnectKey() {
         if (!keyInput.trim()) {
             toast.error("Paste your API key first");
@@ -436,28 +372,6 @@ export default function SettingsPanel() {
                 </div>
               </>)}
 
-            {settingsTab === "workspace" && (<>
-                <div className="settings-section">
-                  <div className="settings-section-title">Server workspace</div>
-                  {workspaceLoading ? <div className="settings-hint">Checking workspace status…</div> : workspaceLifecycle?.state === "active" ? <>
-                    <div className="settings-hint">Your project has a private temporary server copy. It is retained until {new Date(workspaceLifecycle.expiresAt).toLocaleString()} while browser storage remains your local recovery copy.</div>
-                    <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem", flexWrap: "wrap" }}>
-                      <button className="btn btn-secondary" onClick={() => void refreshWorkspaceLifecycle()}>Refresh</button>
-                      <button className="btn btn-ghost" onClick={() => void scheduleServerWorkspaceDeletion()}>Delete server copy</button>
-                    </div>
-                  </> : workspaceLifecycle?.state === "scheduled-delete" ? <>
-                    <div className="settings-hint">The server copy is scheduled for deletion. It remains available to restore until {workspaceLifecycle.deleteUndoUntil ? new Date(workspaceLifecycle.deleteUndoUntil).toLocaleString() : "the scheduled cleanup time"}. Browser project files are unchanged.</div>
-                    <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem", flexWrap: "wrap" }}>
-                      <button className="btn btn-primary" onClick={() => void undoServerWorkspaceDeletion()}>Undo delete</button>
-                      <button className="btn btn-secondary" onClick={() => void refreshWorkspaceLifecycle()}>Refresh</button>
-                    </div>
-                  </> : <>
-                    <div className="settings-hint">This project is currently kept in browser storage. When a server workspace is available, SK Coder stages a private temporary copy for terminal, runner, preview, and eligible package work.</div>
-                    <button className="btn btn-secondary" onClick={() => void refreshWorkspaceLifecycle()} style={{ marginTop: "0.75rem" }}>Refresh</button>
-                  </>}
-                </div>
-              </>)}
-
             {settingsTab === "about" && (<>
                 <div className="settings-section">
                   <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
@@ -489,6 +403,14 @@ export default function SettingsPanel() {
 
                 <div className="settings-section" style={{ borderBottom: "none" }}>
                   <div className="settings-section-title">Contact & Links</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "1rem", padding: "0.75rem", background: "var(--bg-elevated)", borderRadius: "var(--radius)", marginBottom: "0.75rem" }}>
+                    <img src={developerPortrait} alt="Saqlain King" style={{ width: 52, height: 52, borderRadius: "50%", objectFit: "cover", flexShrink: 0, border: "2px solid var(--border-focus)" }}/>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>Saqlain King</div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Developed by Saqlain King</div>
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 3 }}>Building tools for developers everywhere.</div>
+                    </div>
+                  </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                     {[
                 { label: "Report a Bug", href: "/feedback?type=bug", icon: "🐛" },
